@@ -2,7 +2,11 @@
 engines:
   eslint:
     enabled: true
-    channel: "eslint-2"
+    channel: "eslint-4"
+    config:
+      extensions:
+        - .js
+        - .jsx
     checks:
       import/no-duplicates:
         enabled: false
@@ -12,14 +16,19 @@ engines:
         enabled: false
       import/no-extraneous-dependencies:
         enabled: false
-  scss-lint:
+      import/no-named-as-default-member:
+        enabled: false
+  stylelint:
     enabled: true
 ratings:
   paths:
   - "**.js"
+  - "**.jsx"
   - "**.scss"
 exclude_paths:
   - coverage/**/*
-  - documentation/**/*
+  - cypress/**/*
+  - es/**/*
   - lib/**/*
   - node_modules/**/*
+  - test/**/*

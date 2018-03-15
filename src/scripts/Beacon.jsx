@@ -1,47 +1,49 @@
 import React from 'react';
+import PropTypes from 'prop-types';
 import { hexToRGB } from './utils';
 
 let isTouch = false;
 
+/* istanbul ignore else */
 if (typeof window !== 'undefined') {
   isTouch = 'ontouchstart' in window || navigator.msMaxTouchPoints;
 }
 
 export default class JoyrideBeacon extends React.Component {
   static propTypes = {
-    cssPosition: React.PropTypes.string.isRequired,
-    eventType: React.PropTypes.string.isRequired,
-    onTrigger: React.PropTypes.func.isRequired,
-    xPos: React.PropTypes.oneOfType([
-      React.PropTypes.number,
-      React.PropTypes.string
+    eventType: PropTypes.string.isRequired,
+    onTrigger: PropTypes.func.isRequired,
+    step: PropTypes.object.isRequired,
+    xPos: PropTypes.oneOfType([
+      PropTypes.number,
+      PropTypes.string
     ]).isRequired,
-    yPos: React.PropTypes.oneOfType([
-      React.PropTypes.number,
-      React.PropTypes.string
+    yPos: PropTypes.oneOfType([
+      PropTypes.number,
+      PropTypes.string
     ]).isRequired
   };
 
   static defaultProps = {
-    cssPosition: 'absolute',
     xPos: -1000,
     yPos: -1000
   };
 
   render() {
-    const props = this.props;
+    const { eventType, onTrigger, step, xPos, yPos } = this.props;
     const styles = {
       beacon: {
-        left: props.xPos,
-        position: props.cssPosition === 'fixed' ? 'fixed' : 'absolute',
-        top: props.yPos
+        left: xPos,
+        position: step.isFixed === true ? 'fixed' : 'absolute',
+        top: yPos
       },
       inner: {},
       outer: {}
     };
-    const stepStyles = props.step.style || {};
+    const stepStyles = step.style || {};
     let rgb;
 
+    /* istanbul ignore else */
     if (stepStyles.beacon) {
       if (typeof stepStyles.beacon === 'string') {
         rgb = hexToRGB(stepStyles.beacon);
@@ -69,15 +71,14 @@ export default class JoyrideBeacon extends React.Component {
     }
 
     return (
-      <a
-        href="#"
+      <button
         className="joyride-beacon"
         style={styles.beacon}
-        onClick={props.eventType === 'click' || isTouch ? props.onTrigger : null}
-        onMouseEnter={props.eventType === 'hover' && !isTouch ? props.onTrigger : null}>
+        onClick={eventType === 'click' || isTouch ? onTrigger : null}
+        onMouseEnter={eventType === 'hover' && !isTouch ? onTrigger : null}>
         <span className="joyride-beacon__inner" style={styles.inner} />
         <span className="joyride-beacon__outer" style={styles.outer} />
-      </a>
+      </button>
     );
   }
 }

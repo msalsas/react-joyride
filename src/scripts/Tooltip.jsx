@@ -1,25 +1,44 @@
 import React from 'react';
-import { browser, getBoundingClientRectFromElement } from './utils';
+import PropTypes from 'prop-types';
+import { browser, getBoundingClientRectFromElement, sanitizeSelector } from './utils';
 
 export default class JoyrideTooltip extends React.Component {
+  constructor(props) {
+    super(props);
+
+    this.state = {};
+  }
+
   static propTypes = {
-    animate: React.PropTypes.bool.isRequired,
-    buttons: React.PropTypes.object.isRequired,
-    cssPosition: React.PropTypes.string.isRequired,
-    disableOverlay: React.PropTypes.bool,
-    onClick: React.PropTypes.func.isRequired,
-    onRender: React.PropTypes.func.isRequired,
-    showOverlay: React.PropTypes.bool.isRequired,
-    standalone: React.PropTypes.bool,
-    step: React.PropTypes.object.isRequired,
-    type: React.PropTypes.string.isRequired,
-    xPos: React.PropTypes.oneOfType([
-      React.PropTypes.number,
-      React.PropTypes.string
+    allowClicksThruHole: PropTypes.bool.isRequired,
+    animate: PropTypes.bool.isRequired,
+    buttons: PropTypes.object.isRequired,
+    disableOverlay: PropTypes.bool,
+    holePadding: PropTypes.number,
+    offsetParentSelector: PropTypes.string, //eslint-disable-line react/no-unused-prop-types
+    onClick: PropTypes.func.isRequired,
+    onRender: PropTypes.func.isRequired,
+    // position of tooltip with respect to target
+    position: PropTypes.oneOf([
+      'top', 'top-left', 'top-right',
+      'bottom', 'bottom-left', 'bottom-right',
+      'right', 'left',
     ]).isRequired,
-    yPos: React.PropTypes.oneOfType([
-      React.PropTypes.number,
-      React.PropTypes.string
+    // sanitized selector string
+    selector: PropTypes.string.isRequired,
+    showOverlay: PropTypes.bool.isRequired,
+    standalone: PropTypes.bool,
+    step: PropTypes.object.isRequired,
+    // DOM element to target
+    target: PropTypes.object.isRequired,
+    type: PropTypes.string.isRequired,
+    xPos: PropTypes.oneOfType([
+      PropTypes.number,
+      PropTypes.string
+    ]).isRequired,
+    yPos: PropTypes.oneOfType([
+      PropTypes.number,
+      PropTypes.string
     ]).isRequired
   };
 
@@ -27,20 +46,99 @@ export default class JoyrideTooltip extends React.Component {
     buttons: {
       primary: 'Close'
     },
-    cssPosition: 'absolute',
     step: {},
     xPos: -1000,
     yPos: -1000
   };
 
+  componentWillMount() {
+    const opts = this.setOpts();
+    const styles = this.setStyles(this.props.step.style, opts, this.props);
+    this.setState({ styles, opts });
+  }
+
   componentDidMount() {
-    this.forceUpdate(this.props.onRender);
+    const { allowClicksThruHole, onRender, showOverlay } = this.props;
+
+    this.forceUpdate();
+    onRender();
+
+    if (showOverlay && allowClicksThruHole) {
+      document.addEventListener('mousemove', this.handleMouseMove, false);
+    }
+  }
+
+  componentWillReceiveProps(nextProps) {
+    const {
+      allowClicksThruHole: nextAllowClicksThruHole,
+      animate: nextAnimate,
+      standalone: nextStandalone,
+      step: nextStep,
+      holePadding: nextHolePadding,
+      position: nextPosition,
+      xPos: nextXPos,
+      yPos: nextYPos,
+      showOverlay: nextShowOverlay,
+    } = nextProps;
+    const {
+      allowClicksThruHole,
+      animate,
+      standalone,
+      step,
+      holePadding,
+      position,
+      xPos,
+      yPos,
+      showOverlay,
+    } = this.props;
+
+    /* istanbul ignore else */
+    if (
+      nextAnimate !== animate ||
+      nextStandalone !== standalone ||
+      nextStep !== step ||
+      nextHolePadding !== holePadding ||
+      nextPosition !== position ||
+      nextXPos !== xPos ||
+      nextYPos !== yPos
+    ) {
+      const opts = this.setOpts(nextProps);
+      const styles = this.setStyles(nextProps.step.style, opts, nextProps);
+      this.setState({ styles, opts });
+    }
+
+    // If showOverlay changed, we might need to allow clicks in the overlay hole
+    if (nextShowOverlay !== showOverlay) {
+      if (nextShowOverlay && nextAllowClicksThruHole) {
+        document.addEventListener('mousemove', this.handleMouseMove, false);
+      }
+      else {
+        document.removeEventListener('mousemove', this.handleMouseMove, false);
+      }
+    }
+
+    // If allowClickInHole changed, we need to enable or disable clicking in the overlay hole
+    if (nextAllowClicksThruHole !== allowClicksThruHole) {
+      if (nextAllowClicksThruHole) {
+        document.addEventListener('mousemove', this.handleMouseMove, false);
+      }
+      else {
+        document.removeEventListener('mousemove', this.handleMouseMove, false);
+      }
+    }
   }
 
   componentDidUpdate(prevProps) {
-    if (prevProps.step.selector !== this.props.step.selector) {
-      this.forceUpdate(this.props.onRender);
+    const { onRender, selector } = this.props;
+
+    if (prevProps.selector !== selector) {
+      this.forceUpdate();
+      onRender();
     }
+  }
+
+  componentWillUnmount() {
+    document.removeEventListener('mousemove', this.handleMouseMove, false);
   }
 
   getArrowPosition(position) {
@@ -62,23 +160,17 @@ export default class JoyrideTooltip extends React.Component {
         arrowPosition = 94;
       }
     }
-    else {
-      if (position < 5) {
-        arrowPosition = 5;
-      }
-      else if (position > 95) {
-        arrowPosition = 95;
-      }
+    else if (position < 5) {
+      arrowPosition = 5;
+    }
+    else if (position > 95) {
+      arrowPosition = 95;
     }
 
     return arrowPosition;
   }
 
   generateArrow(opts = {}) {
-    let width;
-    let height;
-    let rotate;
-
     opts.location = opts.location || 'top';
     opts.color = opts.color || '#f04';
     opts.color = opts.color.replace('#', '%23');
@@ -88,9 +180,7 @@ export default class JoyrideTooltip extends React.Component {
     opts.scale = opts.width / 16;
     opts.rotate = '0';
 
-    height = opts.height;
-    rotate = opts.rotate;
-    width = opts.width;
+    let { height, rotate, width } = opts;
 
     if (opts.location === 'bottom') {
       rotate = '180 8 4';
@@ -109,18 +199,34 @@ export default class JoyrideTooltip extends React.Component {
     return `data:image/svg+xml,%3Csvg%20width%3D%22${width}%22%20height%3D%22${height}%22%20version%3D%221.1%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpolygon%20points%3D%220%2C%200%208%2C%208%2016%2C0%22%20fill%3D%22${opts.color}%22%20transform%3D%22scale%28${opts.scale}%29%20rotate%28${rotate}%29%22%3E%3C%2Fpolygon%3E%3C%2Fsvg%3E`;
   }
 
-  setStyles(stepStyles, opts) {
+  /**
+   * Calculate styles based on those passed in with the step, or calculated opts, or props
+   *
+   * @param {Object} stepStyles              Style object provided with step
+   * @param {Object} opts                    Options object calculated from this.setOpts
+   * @param {string} opts.arrowPosition      Used for left/right positioing of arrow when on bottom or top
+   * @param {Object} opts.rect               BoundingClientRect of target element
+   * @param {string} opts.positonBaseClass   Base position of tooltip (top, bottom, left, right)
+   * @param {Object} props                   Positioning properties: cssPosition, xPos, and yPos
+   * @returns {Object}                       Calculated styles for arrow, buttons, header, main, footer, hole, and tooltip
+   */
+  setStyles(stepStyles, opts, props) {
+    const { step, xPos, yPos } = props;
+    const isFixed = step.isFixed === true;
+
     const styles = {
       arrow: {
         left: opts.arrowPosition
       },
       buttons: {},
       header: {},
+      main: {},
+      footer: {},
       hole: {},
       tooltip: {
-        position: this.props.cssPosition === 'fixed' ? 'fixed' : 'absolute',
-        top: Math.round(this.props.yPos),
-        left: Math.round(this.props.xPos)
+        position: isFixed ? 'fixed' : 'absolute',
+        top: Math.round(yPos),
+        left: Math.round(xPos)
       }
     };
 
@@ -130,6 +236,9 @@ export default class JoyrideTooltip extends React.Component {
       width: Math.round(opts.rect.width + 10),
       height: Math.round(opts.rect.height + 10)
     };
+    if (isFixed) {
+      styles.hole.position = 'fixed';
+    }
 
     styles.buttons = {
       back: {},
@@ -139,6 +248,7 @@ export default class JoyrideTooltip extends React.Component {
     };
 
     /* Styling */
+    /* istanbul ignore else */
     if (stepStyles) {
       if (stepStyles.backgroundColor) {
         styles.arrow.backgroundImage = `url("${this.generateArrow({
@@ -178,57 +288,100 @@ export default class JoyrideTooltip extends React.Component {
         styles.tooltip.width = stepStyles.width;
       }
 
+      if (stepStyles.header) {
+        styles.header = {
+          ...styles.header,
+          ...stepStyles.header
+        };
+      }
+
+      if (stepStyles.main) {
+        styles.main = {
+          ...styles.main,
+          ...stepStyles.main
+        };
+      }
+
+      if (stepStyles.footer) {
+        styles.footer = {
+          ...styles.footer,
+          ...stepStyles.footer
+        };
+      }
+
       if (stepStyles.back) {
-        styles.buttons.back = Object.assign({}, styles.buttons.back, stepStyles.back);
+        styles.buttons.back = {
+          ...styles.buttons.back,
+          ...stepStyles.back
+        };
+      }
+
+      if (stepStyles.arrow) {
+        styles.arrow = {
+          ...styles.arrow,
+          ...stepStyles.arrow
+        };
       }
 
       if (stepStyles.button) {
-        styles.buttons.primary = Object.assign({}, styles.buttons.primary, stepStyles.button);
+        styles.buttons.primary = {
+          ...styles.buttons.primary,
+          ...stepStyles.button
+        };
       }
 
       if (stepStyles.close) {
-        styles.buttons.close = Object.assign({}, styles.buttons.close, stepStyles.close);
+        styles.buttons.close = {
+          ...styles.buttons.close,
+          ...stepStyles.close
+        };
       }
 
       if (stepStyles.skip) {
-        styles.buttons.skip = Object.assign({}, styles.buttons.skip, stepStyles.skip);
+        styles.buttons.skip = {
+          ...styles.buttons.skip,
+          ...stepStyles.skip
+        };
       }
 
       if (stepStyles.hole) {
-        styles.hole = Object.assign({}, stepStyles.hole, styles.hole);
+        styles.hole = {
+          ...stepStyles.hole,
+          ...styles.hole
+        };
       }
     }
 
     return styles;
   }
 
-  setOpts() {
-    const props = this.props;
-    const step = props.step;
-    const target = document.querySelector(step.selector);
+  setOpts(props = this.props) {
+    const { animate, offsetParentSelector, position, standalone, target, xPos } = props;
+    const offsetParent = document.querySelector(sanitizeSelector(offsetParentSelector));
     const tooltip = document.querySelector('.joyride-tooltip');
 
     const opts = {
       classes: ['joyride-tooltip'],
-      rect: getBoundingClientRectFromElement(target),
-      positionClass: step.position
+      rect: getBoundingClientRectFromElement(target, offsetParent),
+      positionClass: position,
     };
 
     opts.positonBaseClass = opts.positionClass.match(/-/) ? opts.positionClass.split('-')[0] : opts.positionClass;
 
-    if ((/^bottom$/.test(opts.positionClass) || /^top$/.test(opts.positionClass)) && props.xPos > -1) {
+    if ((/^bottom$/.test(opts.positionClass) || /^top$/.test(opts.positionClass)) && xPos > -1) {
       opts.tooltip = { width: 450 };
 
+      /* istanbul ignore else */
       if (tooltip) {
-        opts.tooltip = getBoundingClientRectFromElement(tooltip);
+        opts.tooltip = getBoundingClientRectFromElement(tooltip, offsetParent);
       }
 
       opts.targetMiddle = (opts.rect.left + (opts.rect.width / 2));
-      opts.arrowPosition = (((opts.targetMiddle - props.xPos) / opts.tooltip.width) * 100).toFixed(2);
+      opts.arrowPosition = (((opts.targetMiddle - xPos) / opts.tooltip.width) * 100).toFixed(2);
       opts.arrowPosition = `${this.getArrowPosition(opts.arrowPosition)}%`;
     }
 
-    if (props.standalone) {
+    if (standalone) {
       opts.classes.push('joyride-tooltip--standalone');
     }
 
@@ -238,59 +391,92 @@ export default class JoyrideTooltip extends React.Component {
 
     opts.classes.push(opts.positionClass);
 
-    if (props.animate) {
+    if (animate) {
       opts.classes.push('joyride-tooltip--animate');
     }
 
     return opts;
   }
 
+  handleMouseMove = (e) => {
+    const event = e || window.e;
+    const { hole } = this.state.styles;
+    const offsetY = hole.position === 'fixed' ? event.clientY : event.pageY;
+    const offsetX = hole.position === 'fixed' ? event.clientX : event.pageX;
+    const inHoleHeight = (offsetY >= hole.top && offsetY <= hole.top + hole.height);
+    const inHoleWidth = (offsetX >= hole.left && offsetX <= hole.left + hole.width);
+    const inHole = inHoleWidth && inHoleHeight;
+
+    if (inHole && !this.state.mouseOverHole) {
+      this.setState({ mouseOverHole: true });
+    }
+
+    if (!inHole && this.state.mouseOverHole) {
+      this.setState({ mouseOverHole: false });
+    }
+  };
+
   render() {
-    const props = this.props;
-    const step = props.step;
-    const target = document.querySelector(step.selector);
+    const {
+      buttons,
+      disableOverlay,
+      onClick,
+      selector,
+      showOverlay,
+      step,
+      target,
+      type
+    } = this.props;
 
     if (!target) {
       return undefined;
     }
 
-    const opts = this.setOpts();
-    const styles = this.setStyles(step.style, opts);
+    const { opts, styles } = this.state;
     const output = {};
 
     if (step.title) {
       output.header = (
         <div className="joyride-tooltip__header" style={styles.header}>
-          {step.title}</div>
+          {step.title}
+        </div>
       );
     }
 
-    if (props.buttons.skip) {
-      output.skip = (<a
-        href="#"
-        className="joyride-tooltip__button joyride-tooltip__button--skip"
-        style={styles.buttons.skip}
-        data-type="skip"
-        onClick={props.onClick}>
-        {props.buttons.skip}
-      </a>);
-    }
-    if (!step.text || typeof step.text === 'string') {
-      output.main = (<div className="joyride-tooltip__main" dangerouslySetInnerHTML={{ __html: step.text || '' }} />);
-    }
-    else {
-      output.main = (<div className="joyride-tooltip__main">{step.text}</div>);
+    if (buttons.skip) {
+      output.skip = (
+        <button
+          className="joyride-tooltip__button joyride-tooltip__button--skip"
+          style={styles.buttons.skip}
+          data-type="skip"
+          onClick={onClick}>
+          {buttons.skip}
+        </button>
+      );
     }
 
-    if (props.buttons.secondary) {
-      output.secondary = (<a
-        href="#"
-        className="joyride-tooltip__button joyride-tooltip__button--secondary"
-        style={styles.buttons.back}
-        data-type="back"
-        onClick={props.onClick}>
-        {props.buttons.secondary}
-      </a>);
+    // Why is this here?
+    if (!step.text || typeof step.text === 'string') {
+      output.main = (
+        <div
+          className="joyride-tooltip__main"
+          style={styles.main}
+          dangerouslySetInnerHTML={{ __html: step.text || '' }} />);
+    }
+    else {
+      output.main = (<div className="joyride-tooltip__main" style={styles.main}>{step.text}</div>);
+    }
+
+    if (buttons.secondary) {
+      output.secondary = (
+        <button
+          className="joyride-tooltip__button joyride-tooltip__button--secondary"
+          style={styles.buttons.back}
+          data-type="back"
+          onClick={onClick}>
+          {buttons.secondary}
+        </button>
+      );
     }
 
     if (step.event === 'hover') {
@@ -298,52 +484,54 @@ export default class JoyrideTooltip extends React.Component {
     }
 
     output.tooltipComponent = (
-      <div className={opts.classes.join(' ')} style={styles.tooltip} data-target={step.selector}>
+      <div className={opts.classes.join(' ')} style={styles.tooltip} data-target={selector}>
         <div
           className={`joyride-tooltip__triangle joyride-tooltip__triangle-${opts.positionClass}`}
           style={styles.arrow} />
-        <a
-          href="#"
+        <button
           className={`joyride-tooltip__close${(output.header ? ' joyride-tooltip__close--header' : '')}`}
           style={styles.buttons.close}
           data-type="close"
-          onClick={props.onClick}>×</a>
+          onClick={onClick} />
         {output.header}
         {output.main}
-        <div className="joyride-tooltip__footer">
+        <div className="joyride-tooltip__footer" style={styles.footer}>
           {output.skip}
           {output.secondary}
-          <a
-            href="#"
+          <button
             className="joyride-tooltip__button joyride-tooltip__button--primary"
             style={styles.buttons.primary}
-            data-type={['single', 'casual'].indexOf(props.type) > -1 ? 'close' : 'next'}
-            onClick={props.onClick}>
-            {props.buttons.primary}
-          </a>
+            data-type={['single', 'casual'].includes(type) ? 'close' : 'next'}
+            onClick={onClick}>
+            {buttons.primary}
+          </button>
         </div>
       </div>
     );
 
-    if (props.showOverlay) {
+    if (showOverlay) {
+      // Empty onClick handler is for iOS touch devices (https://github.com/gilbarbara/react-joyride/issues/204)
       output.hole = (
-        <div className={`joyride-hole ${browser}`} style={styles.hole} />
+        <div className={`joyride-hole ${browser}`} style={styles.hole} onClick={() => {}} />
       );
     }
 
-    if (!props.showOverlay) {
+    if (!showOverlay) {
       return output.tooltipComponent;
     }
+
+    const overlayStyles = {
+      cursor: disableOverlay ? 'default' : 'pointer',
+      height: document.body.clientHeight,
+      pointerEvents: this.state.mouseOverHole ? 'none' : 'auto',
+    };
 
     return (
       <div
         className="joyride-overlay"
-        style={{
-          cursor: props.disableOverlay ? 'default' : 'pointer',
-          height: document.body.clientHeight
-        }}
+        style={overlayStyles}
         data-type="close"
-        onClick={!props.disableOverlay ? props.onClick : undefined}>
+        onClick={!disableOverlay ? onClick : undefined}>
         {output.hole}
         {output.tooltipComponent}
       </div>
